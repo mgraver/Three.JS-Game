@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Batman - Physijs Test</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				font-family: Monospace;
+				background-color: #000;
+				color: #fff;
+				margin: 0px;
+				overflow: hidden;
+			}
+			#info {
+				color: #fff;
+				position: absolute;
+				top: 10px;
+				width: 100%;
+				text-align: center;
+				z-index: 100;
+				display:block;
+			}
+			#info a, .button { color: #f00; font-weight: bold; text-decoration: underline; cursor: pointer }
+		</style>
+	</head>
+
+	<body>
+		<script src="build/three.js"></script>
+
+		<script src="js/loaders/DDSLoader.js"></script>
+		<script src="js/loaders/MTLLoader.js"></script>
+		<script src="js/loaders/OBJLoader.js"></script>
+		<script src="js/loaders/PLYLoader.js"></script>
+		<script src="js/BlendCharacter.js"></script>
+		<script src="js/BlendCharacterGui.js"></script>
+		<script src="js/controls/PointerLockControlsSimple.js"></script>
+		<script src="js/physijs/physi.js"></script>
+
+		<script src="js/Detector.js"></script>
+		<script src="js/libs/stats.min.js"></script>
+		<script src="js/ai.js"></script>
+
+		<script>
+
+			// 'use strict';
+
+			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+			var container, stats;
+			var camera, scene, renderer;
+			var geometry, material;
+			var controls;
+			var box;
+			var object = null;
+			var batman = null;
+			var city = null;
+			var moving = false;
+			var windowHalfX = window.innerWidth / 2;
+			var windowHalfY = window.innerHeight / 2;
+			var objectCollisions = [];
+			var controls;
+			var mesh;
+			var blendMesh;
+
+			var clock = new THREE.Clock();
+			var time = Date.now();
+			var Ai;
+			var aiFoot1, aiFoot2, aiTorso, aiHead, aiPart;
+			var aiHeadMaterial, aiMaterial, headMaterials;
+
+			Physijs.scripts.worker = 'js/physijs/physijs_worker.js';
+	    Physijs.scripts.ammo = 'ammo.js';
+
+			initPointerLock();
+			initScene();
+			animate();
+
+			function initScene() {
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+				camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 100000 );
+
+				camera.position.y = 50;
+				camera.position.z = 400;
+				// scene
+				scene = new Physijs.Scene;
+				scene.setGravity(new THREE.Vector3( 0, -1000, 0 ));
+				// scene.fog = new THREE.Fog( 0x72645b, 200, 1500 );
+
+				// Sky made out of a sphere.
+				var loader = new THREE.TextureLoader();
+				var skyTexture = loader.load('js/texture/night.jpg');
+
+				material = new THREE.MeshBasicMaterial( {
+	            map: skyTexture
+					 });
+
+				var backgroundSphere = new THREE.Mesh( new THREE.SphereBufferGeometry( 50000, 64, 16 ), material );
+				backgroundSphere.scale.x = -1;
+				backgroundSphere.rotation.y += 90 * (Math.PI / 180);
+				scene.add( backgroundSphere );
+
+				//setupControls( camera );
+
+				// Axis Helper
+				var axisHelper = new THREE.AxisHelper( 100 );
+				scene.add( axisHelper );
+
+				// Lighting
+				var ambient = new THREE.AmbientLight( 0x444444 );
+				scene.add( ambient );
+				var directionalLight = new THREE.DirectionalLight( 0xffeedd);
+				directionalLight.position.set( 0, 0, 1 ).normalize();
+				scene.add( directionalLight );
+
+				// Plane
+				var geometry = new THREE.PlaneGeometry( 5000, 5000, 128, 128);
+				var material = new THREE.MeshBasicMaterial( {
+					color: 0x4d4d4d,
+					side: THREE.DoubleSide,
+					wireframe: true,
+					visible: true
+				} );
+
+				var plane = new Physijs.BoxMesh( geometry, material, 0);
+				plane.rotation.x = Math.PI / 2;
+				plane.position.y = - 33;
+				scene.add( plane );
+
+				//Make the AI body.
+				geometry = new THREE.BoxGeometry(30, 20, 15);
+				aiMaterial = new THREE.MeshStandardMaterial({
+					color: 0xffffff,
+					side: THREE.DoubleSide,
+					map: THREE.ImageUtils.loadTexture('js/texture/creeper_texture.png'),
+					metalness: 0.0
+				});
+
+				headMaterials = new Array();
+				for (var i = 0; i < 5; i++) {
+					headMaterials.push(aiMaterial);
+				}
+
+				headMaterials.push(
+					new THREE.MeshStandardMaterial({
+						color: 0xffffff,
+						side: THREE.DoubleSide,
+						map: THREE.ImageUtils.loadTexture('js/texture/creeper_face.jpg'),
+						metalness: 0.0
+					})
+				);
+
+
+				aiHeadMaterial = new THREE.MultiMaterial(headMaterials);
+
+				aiFoot1 = new Physijs.BoxMesh(geometry, aiMaterial);
+				aiFoot1.position.z = 100;
+
+				material = new THREE.MeshPhongMaterial( {
+					color: 0x323e85,
+					side: THREE.DoubleSide,
+					wireframe: false,
+					visible: true,
+					opacity: 0.0,
+					transparent: true
+				} );
+
+				aiPart = new Physijs.BoxMesh(geometry, material);
+				aiPart.position.z = -15;
+				aiFoot1.add(aiPart);
+
+				var material = new THREE.MeshBasicMaterial( {
+					color: 0xffffff,
+					side: THREE.DoubleSide,
+					wireframe: true,
+					visible: true
+				} );
+
+				aiFoot2 = new Physijs.BoxMesh(geometry, aiMaterial);
+				aiFoot2.position.z = -15;
+				aiPart.add(aiFoot2);
+
+
+				geometry = new THREE.BoxGeometry(30, 60, 15);
+				aiTorso = new Physijs.BoxMesh(geometry, aiMaterial);
+				aiTorso.position.y = 40;
+				aiPart.add(aiTorso);
+
+				geometry = new THREE.BoxGeometry(30,34,32);
+				aiHead = new Physijs.BoxMesh(geometry, aiHeadMaterial);
+				aiHead.position.y = 48;
+				aiTorso.add(aiHead);
+
+				scene.add(aiFoot1);
+				/*scene.add(aiPart);
+				scene.add(aiFoot2);
+				scene.add(aiTorso);*/
+
+				/*geometry = new THREE.BoxGeometry(30, 60, 25);
+				aiTorso = new Physijs.BoxMesh(geometry, material);
+				aiTorso.position.z = 100;
+				aiTorso.position.y = 40;
+				scene.add(aiTorso);*/
+
+				//Box
+				var material = new THREE.MeshBasicMaterial( {
+					color: 0x4d4d4d,
+					side: THREE.DoubleSide,
+					wireframe: true,
+					visible: false
+				} );
+
+				geometry = new THREE.BoxGeometry( 25, 100, 25 );
+				box = new Physijs.BoxMesh(geometry,material,1);
+				box.add( camera );
+				scene.add( box );
+
+				var mesh = new THREE.Mesh( geometry, material );
+				scene.add( mesh );
+				mesh.position.x = 100;
+				mesh.position.z = 100;
+				objectCollisions.push( mesh );
+
+				controls = setupControls(box);
+				material = new THREE.MeshBasicMaterial( {
+					color: 0x4d4d4d,
+					side: THREE.DoubleSide,
+					wireframe: true,
+				} );
+
+				//Ai = new AI(geometry, material);
+				Ai = new AI(aiFoot1);
+				scene.add(Ai.aiMesh);
+
+				//Wall
+				geometry = new THREE.BoxGeometry(200,25,200);
+				material = new THREE.MeshPhongMaterial( {
+					color: 0x323e85,
+					side: THREE.DoubleSide,
+					wireframe: false,
+					visible: true,
+					opacity: 0.5,
+					transparent: true
+				} );
+
+				var wall = new Physijs.BoxMesh(geometry,material,1);
+				wall.position.z = -500;
+				wall.position.y = 200;
+				objectCollisions.push(wall);
+				scene.add(wall);
+
+				geometry = new THREE.BoxGeometry(200,50,200);
+				var stair1 = new Physijs.BoxMesh(geometry,material,1);
+				stair1.position.z = -700;
+				stair1.position.y = 200;
+				objectCollisions.push(stair1);
+				scene.add(stair1);
+
+				geometry = new THREE.BoxGeometry(200,75,200);
+				var stair2 = new Physijs.BoxMesh(geometry,material,1);
+				stair2.position.z = -900;
+				stair2.position.y = 200;
+				objectCollisions.push(stair2);
+				scene.add(stair2);
+
+				geometry = new THREE.BoxGeometry(200,100,200);
+				var stair3 = new Physijs.BoxMesh(geometry,material,1);
+				stair3.position.z = -1100;
+				stair3.position.y = 200;
+				objectCollisions.push(stair3);
+				scene.add(stair3);
+
+				geometry = new THREE.BoxGeometry(200,125,200);
+				var stair4 = new Physijs.BoxMesh(geometry,material,1);
+				stair4.position.z = -1300;
+				stair4.position.y = 200;
+				objectCollisions.push(stair4);
+				scene.add(stair4);
+
+				geometry = new THREE.BoxGeometry(1000,500,100);
+				var wall2 = new Physijs.BoxMesh(geometry,material,1);
+				wall2.position.z = 500;
+				wall2.position.y = 400;
+				objectCollisions.push(wall2);
+				scene.add(wall2);
+
+				// Mushroom shape
+				material = new THREE.MeshPhongMaterial( {
+					color: 0xc2393d,
+					side: THREE.DoubleSide,
+					wireframe: false,
+					visible: true,
+					opacity: 0.5,
+					transparent: true
+				} );
+
+				geometry = new THREE.BoxGeometry(50,100,50);
+				var heightShape1 = new Physijs.BoxMesh(geometry,material,1);
+				heightShape1.position.x = 400;
+				heightShape1.position.y = 200;
+				heightShape1.position.z = -1000;
+				objectCollisions.push(heightShape1);
+				scene.add(heightShape1);
+
+				geometry = new THREE.BoxGeometry(200,20,200);
+				var heightShape2 = new Physijs.BoxMesh(geometry,material,1);
+				heightShape2.position.x = 400;
+				heightShape2.position.y = 400;
+				heightShape2.position.z = -1000;
+				objectCollisions.push(heightShape2);
+				scene.add(heightShape2);
+
+				// Inclines
+				material = new THREE.MeshPhongMaterial( {
+					color: 0x68e65d,
+					side: THREE.DoubleSide,
+					wireframe: false,
+					visible: true,
+					opacity: 0.5,
+					transparent: true
+				} );
+
+				geometry = new THREE.BoxGeometry(100,100,100);
+				var inclinedPlane1 = new Physijs.BoxMesh(geometry,material,1);
+				inclinedPlane1.position.x = -400;
+				inclinedPlane1.position.y = 200;
+				inclinedPlane1.position.z = -1000;
+				objectCollisions.push(inclinedPlane1);
+				scene.add(inclinedPlane1);
+
+				geometry = new THREE.BoxGeometry(200,20,800);
+				var inclinedPlane2 = new Physijs.BoxMesh(geometry,material,1);
+				inclinedPlane2.position.x = -400;
+				inclinedPlane2.position.y = 400;
+				inclinedPlane2.position.z = -800;
+				objectCollisions.push(inclinedPlane2);
+				scene.add(inclinedPlane2);
+
+				// Start of model
+				var onProgress = function ( xhr ) {
+					if ( xhr.lengthComputable ) {
+						var percentComplete = xhr.loaded / xhr.total * 100;
+						console.log( Math.round(percentComplete, 2) + '% downloaded' );
+					}
+				};
+
+				var onError = function ( xhr ) { };
+				THREE.Loader.Handlers.add( /\.dds$/i, new THREE.DDSLoader() );
+
+				var mtlLoader = new THREE.MTLLoader();
+				mtlLoader.setPath( 'obj/batman/' );
+				mtlLoader.load( 'batman.mtl', function( materials ) {
+				materials.preload();
+
+				var objLoader = new THREE.OBJLoader();
+				objLoader.setMaterials( materials );
+				objLoader.setPath( 'obj/batman/' );
+
+				var physMaterial = Physijs.createMaterial( materials, 0, 0 );
+
+				objLoader.load( 'batman.obj', function ( batmanObject ) {
+
+				// Mofifying Batman
+				batmanObject.scale.x = 50;
+				batmanObject.scale.y = 50;
+				batmanObject.scale.z = 50;
+
+				batman = batmanObject;
+				objectCollisions.push( batman );
+
+				scene.add( batman );
+
+					}, onProgress, onError );
+				});
+				// End of Model*/
+
+				/* Load the buddha statue*/
+				var loader = new THREE.PLYLoader();
+				loader.load( './models/ply/ascii/happy_vrip_res3.ply', function ( geometry ){
+					var material = new THREE.MeshPhongMaterial( {
+						color    : 0xffffff,
+						specular : 0xffffff,
+						shininess: 100,
+						// visible: false
+					} );
+
+					mesh = new Physijs.BoxMesh( geometry, Physijs.createMaterial( material, 10.0, 0.0), 0.0 );
+					mesh.position.set( 0, -100, -1600 );
+					mesh.scale.set   ( 1000.0, 1000.0, 1000.0 );
+					mesh.castShadow 	= true;
+					mesh.receiveShadow 	= true;
+					scene.add( mesh );
+					objectCollisions.push( mesh );
+				} );
+
+				/*blendMesh = new THREE.BlendCharacter();
+				blendMesh.load( "models/skinned/marine/marine_anims_core.json", start );
+
+				loader.load( "models/kaf.js", function(geometry) {
+					var part1 = new THREE.Mesh( geometry, new THREE.MeshFaceMaterial() );
+					mesh = new THREE.Object3D();
+					mesh.add( part1 );
+					//var mesh = new THREE.Mesh(geometry, material);
+					mesh.position.set(0,80.10012515644638,0);
+					mesh.rotation.set(0,0,0);
+					mesh.scale.set(1,1,1);
+					scene.add( mesh );
+				});*/
+
+				//
+				renderer = new THREE.WebGLRenderer();
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				container.appendChild( renderer.domElement );
+
+				// stats
+				stats = new Stats();
+				container.appendChild( stats.dom );
+
+				// resize
+				window.addEventListener( 'resize', onWindowResize, false );
+			}
+
+			function onWindowResize() {
+				windowHalfX = window.innerWidth / 2;
+				windowHalfY = window.innerHeight / 2;
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+			}
+
+			//
+			function animate() {
+				requestAnimationFrame( animate );
+
+				updateMovement( 4000,  objectCollisions);
+
+
+
+
+
+				Ai.move(controls.getObject());
+				var distance = Ai.getDistance(controls.getObject());
+				//console.log("distance: " + distance);
+
+
+
+
+				var relativeCameraOffset = new THREE.Vector3( 0, 0, 0 );
+				var cameraOffset = relativeCameraOffset.applyMatrix4( box.matrixWorld );
+
+				// updates Batman's position.
+				batman.position.x = cameraOffset.x;
+				batman.position.y = cameraOffset.y - 50;
+				batman.position.z = cameraOffset.z;
+
+				// updates Batman's rotation on the Y-axis.
+				var angle = box.getWorldRotation(); // Euler object.
+
+			  if (isPlayerMoving()) { // Move batman only when he is moving.
+
+					batman.setRotationFromEuler(angle); // Have him follow the box's angle.
+					batman.rotateY(Math.PI);
+
+					// Euler rotation is very order specific. The rotation took me a while.
+					// This conditional checks if you're on the right or left angle.
+					if ((angle.y < 0 && angle.x >= 0 && angle.z >= 0) ||
+							(angle.y < 0 && angle.x < 0 && angle.z < 0)) {
+
+						batman.rotateY(Math.PI / 2);
+						batman.rotation.x = 0;
+						batman.rotation.y *= -1;
+						batman.rotation.z = 0;
+						batman.rotateY(Math.PI / 2);
+
+					} else {
+						batman.rotateY(Math.PI / 2);
+						batman.rotation.x = 0;
+						batman.rotation.z = 0;
+						batman.rotateY(-Math.PI / 2);
+					}
+				}
+
+				render();
+				stats.update();
+			}
+
+			function render() {
+
+				scene.simulate();
+				renderer.render( scene, camera );
+			}
+
+			function isPlayerMoving() {
+
+			   if (moveForward || moveBackward || moveLeft || moveRight) {
+			     moving = true;
+			   } else {
+			     moving = false;
+			   }
+
+				 return moving;
+			}
+
+		</script>
+
+	</body>
+</html>
